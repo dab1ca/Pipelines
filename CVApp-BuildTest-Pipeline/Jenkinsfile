@@ -1,0 +1,59 @@
+pipeline 
+{
+    agent 
+    {
+        label 'jenkinsworker-1'
+    }
+    stages 
+    {
+        stage('Clone') 
+        {
+            steps 
+            {
+                git branch: 'main', url: 'https://github.com/dab1ca/FancierCV.git'
+            }
+        }
+        stage('PrepareNetwork')
+        {
+            steps
+            {
+                sh 'docker network ls | grep app-net || docker network create app-net'
+            }
+        }
+        stage('Build')
+        {
+            steps
+            {
+                sh 'docker image rm -f dab1ca/cv:cv-db || true'
+                sh 'cd /home/tsvetan/workspace/DeployAppLocally/main && docker image build -t dab1ca/cv:cv-db -f Dockerfile.db .'
+                sh 'docker image rm -f dab1ca/cv:cv-web || true'
+                sh 'cd /home/tsvetan/workspace/DeployAppLocally/main && docker image build -t dab1ca/cv:cv-web -f Dockerfile.web .'
+            }
+        }
+        stage('DeployTestEnv')
+        {
+            steps
+            {
+                sh 'docker container remove db -f || true'
+                sh 'docker container run -d --name db --net app-net -e MYSQL_ROOT_PASSWORD=Password1 cv-db'
+                sh 'docker container remove web -f || true'
+                sh 'docker container run -d --name web --net app-net -p 8000:80 cv-web'
+            }
+        }
+        stage('TestURLResponse')
+        {
+            steps
+            {
+                sh 'echo $(curl --write-out "%{http_code}" --silent --output /dev/null http://localhost:8000) | grep 200'
+            }
+        }
+        stage('PushContainers')
+        {
+            steps
+            {
+                sh 'docker push dab1ca/cv:cv-web'
+                sh 'docker push dab1ca/cv:cv-db'
+            }
+        }
+    }
+}
